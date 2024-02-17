@@ -1,0 +1,365 @@
+---
+title: "Modelo de Futuros y Forwards"
+author: Julian Durán 
+output: html_notebook
+---
+
+Bienvenido al modelo de Futuros y forwards para derivados financieros. Para el buen uso de
+este modelo, recuerde introducir cualquier tipo de tasa como número real (5.75% -> 5.75).
+También tenga en cuenta que los inputs para las funciones deben introducirse
+en la consola a medida que se vaya indicando.
+
+Conversión Spot -> Strike
+Función
+```{r}
+strike.f <- function(spot=(as.numeric(readline(prompt="Introduzca el precio Spot: "))),
+                     devmdo.bid=(as.numeric(readline(prompt="Introduzca la devaluación de mercado BID: "))),
+                     devmdo.offer=(as.numeric(readline(prompt="Introduzca la devaluación de mercado OFFER: "))),
+                     plazo=as.numeric(readline(prompt="Introduzca el plazo en días: ")),
+                     base=(as.numeric(readline(prompt="¿Desea usar base 365 o 360?: "))),
+                     tipo=(as.numeric(readline(prompt="Introduzca 1: Tasa EA. 0: Tasa continua -> ")))){
+    if(tipo == 1){
+      strikebid <- spot*((1+(devmdo.bid/100))^(plazo/base))
+      strikeoffer <- spot*((1+(devmdo.offer/100))^(plazo/base))
+    }else if(tipo == 0){
+      strikebid <- spot*exp((devmdo.bid/100)*(plazo/base))
+      strikeoffer <- spot*exp((devmdo.offer/100)*(plazo/base))
+    }
+    return(list(StrikeBid=strikebid,StrikeOffer=strikeoffer))
+}
+```
+Uso
+```{r}
+Strike_test <- strike.f();Strike_test
+```
+
+Arbitraje
+```{r}
+arbitraje.f <- function(spot=as.numeric((readline(prompt = ("Introduzca Spot: ")))),
+                         tasalocal.bid=as.numeric((readline(prompt = ("Introduzca Tasa local BID: ")))),
+                         tasalocal.offer=as.numeric((readline(prompt = ("Introduzca Tasa local OFFER: ")))),
+                         tasaextranjera.bid=as.numeric((readline(prompt = ("Introduzca Tasa extranjera BID:  ")))),
+                         tasaextranjera.offer=as.numeric(readline(prompt = ("Introduzca Tasa extranjera OFFER:  "))),
+                         plazo=as.numeric(readline(prompt = ("Introduzca plazo en días: "))),
+                         base=as.numeric(readline(prompt = ("Introduzca base 360 o 365: "))),
+                         devmdo.bid=as.numeric(readline(prompt = ("Introduzca devaluación de mercado BID: "))),
+                         devmdo.offer=as.numeric(readline(prompt = ("Introduzca devaluación de mercado OFFER: "))),
+                         valor=as.numeric(readline(prompt = ("Introduzca valor nominal: "))),
+                         utilidad=as.numeric(readline(prompt = ("Introduzca 1 si desea utilidad local o 0 para extranjera: "))),
+                         tipo=as.numeric(readline(prompt = ("Introduzca 1 para tasa strike EA o 0 para continua: ")))){
+    
+    strike.f <- function(spot,devmdo.bid,devmdo.offer,plazo,base=360,tipo = 1){
+      if(tipo == 1){
+        strikebid <- spot*((1+(devmdo.bid/100))^(plazo/base))
+        strikeoffer <- spot*((1+(devmdo.offer/100))^(plazo/base))
+      }else if(tipo == 0){
+        strikebid <- spot*exp((devmdo.bid/100)*(plazo/base))
+        strikeoffer <- spot*exp((devmdo.offer/100)*(plazo/base))
+      }
+      return(list(strikebid=strikebid,strikeoffer=strikeoffer))
+    }
+    
+    #editar si se quieren tomar las dos puntas de la devaluación 
+    strikebid <- as.numeric(strike.f(spot,devmdo.bid,devmdo.offer, plazo, base, tipo)$strikebid)
+    strikeoffer <- as.numeric(strike.f(spot,devmdo.bid,devmdo.offer, plazo, base, tipo)$strikeoffer)
+    
+    dev.eq.bid <- ((1+(tasalocal.bid/100))/(1+(tasaextranjera.offer/100)))-1
+    dev.eq.offer <- ((1+(tasalocal.offer/100))/(1+(tasaextranjera.bid/100)))-1
+    
+    #Identificación
+    
+    if (devmdo.bid > dev.eq.bid & devmdo.offer > dev.eq.offer){
+      estrategia <- "Short Forward"
+    } 
+    else if (devmdo.bid < dev.eq.bid & devmdo.offer < dev.eq.offer){
+      estrategia <- "Long Forward"
+    } 
+    else if (dev.eq.bid < devmdo.bid & devmdo.offer < dev.eq.offer){
+      estrategia <- "No arbitrable"
+    }
+    
+    # Compro FWD
+    if(estrategia == "Long Forward" & utilidad == 1 ){ #local
+      #Crédito extranjero
+      VP.cred <- valor/((1+(tasaextranjera.offer/100))^(plazo/base))
+      #Compro FWD 
+      FWD <- valor*strikeoffer
+      #Monetizo local
+      VP.local <- VP.cred*spot
+      #Inversión local
+      VF.inv <- VP.local*((1+(tasalocal.bid/100))^(plazo/base))
+      #Payoff
+      Payoff <- as.numeric(VF.inv - FWD)
+      return(list(Estrategia=estrategia,Payoff=Payoff))
+    } 
+    else if (estrategia == "Long Forward" & utilidad == 0){
+      #FWD
+      FWD <- valor*strikeoffer
+      #Hallo inversión en Local
+      VP.FWD <- FWD/((1+(tasalocal.bid/100))^(plazo/base))
+      #Monetizo a Extranjero
+      VP.Ext <- VP.FWD/spot
+      #Crédito Extranjero
+      VF.Cred <- VP.Ext*((1+(tasaextranjera.offer/100))^(plazo/base))
+      #Payoff
+      Payoff <- valor-VF.Cred  
+      return(list(Estrategia=estrategia,Payoff=Payoff))
+      
+    }
+    #Vendo FWD
+    else if (estrategia == "Short Forward" & utilidad == 0){
+      #Crédito Local
+      Cred.spot <- valor*strikebid
+      VP.cred <- Cred.spot/((1+(tasalocal.offer/100))^(plazo/base))
+      #Monetizo extranjero
+      VP.Ext <- VP.cred/spot
+      #Invierto en Ext
+      VP.Inv <- VP.Ext*((1+(tasaextranjera.bid/100))^(plazo/base))
+      #Payoff
+      Payoff <- valor - VP.Inv
+      return(list(Estrategia=estrategia,Payoff=Payoff))
+    }
+    else if(estrategia == "Short Forward" & utilidad == 1){
+      #Hallo inv en Extranjero
+      VP.Inv <- valor/((1+(tasaextranjera.bid/100))^(plazo/base))
+      #Inv en spot local
+      Inv.spot <- VP.Inv*spot
+      #Crédito en Local
+      VF.Cred <- Inv.spot*((1+(tasalocal.offer/100))^(plazo/base))
+      #FWD en local
+      FWD <- valor*strikebid
+      #Payoff
+      Payoff <- VF.Cred - FWD
+      return(list(Estrategia=estrategia,Payoff=Payoff))
+    }
+    #Non arbitrable
+    else if(estrategia == "No arbitrable"){
+      return(print("Este ejercicio no es arbitrable."))
+    }
+    
+}
+
+arbitrajito <- arbitraje.f();arbitrajito
+```
+
+Inversión y Crédito Sintético
+```{r}
+synthetic.f <- function(spot=c(as.numeric(readline(prompt="Introduzca Spot Bid: ")),
+                               as.numeric(readline(prompt="Introduzca Spot Offer: "))),
+                               valor=as.numeric(readline(prompt="Introduzca valor: ")), 
+                               invliq =readline(prompt="Si tiene una posición, 1. Si necesita liquidez, 0: "),
+                               tasalocal=c(as.numeric(readline(prompt="Introduzca tasa local Bid: ")),
+                                           as.numeric(readline(prompt="Introduzca tasa local Offer: "))),
+                               tasaextranjera=c(as.numeric(readline(prompt="Introduzca tasa extranjera Bid: ")), 
+                                                as.numeric(readline(prompt="Introduzca tasa extranjera Offer: "))),
+                               plazo=as.numeric(readline(prompt="Introduzca el plazo en días: ")), 
+                               base=as.numeric(readline(prompt="Introduzca base 360 o 365: ")),
+                               devaluacion=c(as.numeric(readline(prompt="Introduzca devaluación de mercado Bid: ")),
+                                             as.numeric(readline(prompt="Introduzca devaluación de mercado Offer: ")))){
+  
+  #Posición = 1
+  #Liquidez = 0
+  
+  spotbid <- spot[1]
+  spotoffer <- spot[2]
+  tasalocal.bid <- tasalocal[1]
+  tasalocal.offer <- tasalocal[2]
+  tasaext.bid <- tasaextranjera[1]
+  tasaext.offer <- tasaextranjera[2]
+  devmdo.bid <- devaluacion[1]
+  devmdo.offer <- devaluacion[2]
+  
+  strike.bid <- spotbid*((1+(devmdo.bid/100))^(plazo/base))
+  strike.offer <- spotoffer*((1+(devmdo.offer/100))^(plazo/base))
+  
+  if(invliq == 1){
+    #Monetizo Posición
+    pos.spot <- valor*spotbid
+    #Invierto
+    VF.Inv <- pos.spot*((1+(tasalocal.bid/100))^(plazo/base))
+    #Compro FWD
+    FWD.loc <- valor*strike.offer
+    #Monetizo 
+    Inv.ext <- VF.Inv/strike.offer
+    #¿Cuanto me rentó?
+    i.sint <- ((Inv.ext/valor)^(base/plazo))-1
+    return(i.sint*100)
+
+  }
+  else if (invliq == 0){
+    #"Monetizo"
+    VP.Cred <- valor/spotbid
+    #Crédito ext
+    VF.Cred <- VP.Cred*((1+(tasaext.offer/100))^(plazo/base))
+    #Compro FWD
+    FWD.Loc <- VF.Cred*strike.offer
+    #¿Cuanto pagué?
+    i.sint <- ((FWD.Loc/valor)^(base/plazo))-1
+    return(i.sint*100)
+  }
+}
+
+synthe <- synthetic.f();synthe
+```
+Carry Trade
+
+```{r}
+carrytrade.f <- function(spot=as.numeric((readline(prompt = ("Introduzca Spot: ")))),
+                         tasaextlocal.bid=as.numeric((readline(prompt = ("Introduzca Tasa externa local BID: ")))),
+                         tasaextlocal.offer=as.numeric((readline(prompt = ("Introduzca Tasa externa local OFFER: ")))),
+                         tasaextranjera.bid=as.numeric((readline(prompt = ("Introduzca Tasa extranjera BID:  ")))),
+                         tasaextranjera.offer=as.numeric(readline(prompt = ("Introduzca Tasa extranjera OFFER:  "))),
+                         plazo=as.numeric(readline(prompt = ("Introduzca plazo en días: "))),
+                         base=as.numeric(readline(prompt = ("Introduzca base 360 o 365: "))),
+                         devmdo.bid=as.numeric(readline(prompt = ("Introduzca devaluación de mercado BID: "))),
+                         devmdo.offer=as.numeric(readline(prompt = ("Introduzca devaluación de mercado OFFER: "))),
+                         valor=as.numeric(readline(prompt = ("Introduzca valor nominal: "))),
+                         utilidad=as.numeric(readline(prompt = ("Introduzca 1 si desea utilidad local o 0 para extranjera: "))),
+                         tipo=as.numeric(readline(prompt = ("Introduzca 1 para tasa strike EA o 0 para continua: ")))){
+    
+    strike.f <- function(spot,devmdo.bid,devmdo.offer,plazo,base=360,tipo = 1){
+      if(tipo == 1){
+        strikebid <- spot*((1+(devmdo.bid/100))^(plazo/base))
+        strikeoffer <- spot*((1+(devmdo.offer/100))^(plazo/base))
+      }else if(tipo == 0){
+        strikebid <- spot*exp((devmdo.bid/100)*(plazo/base))
+        strikeoffer <- spot*exp((devmdo.offer/100)*(plazo/base))
+      }
+      return(list(strikebid=strikebid,strikeoffer=strikeoffer))
+    }
+    
+    #editar si se quieren tomar las dos puntas de la devaluación 
+    strikebid <- as.numeric(strike.f(spot,devmdo.bid,devmdo.offer, plazo, base, tipo)$strikebid)
+    strikeoffer <- as.numeric(strike.f(spot,devmdo.bid,devmdo.offer, plazo, base, tipo)$strikeoffer)
+    
+    dev.eq.bid <- ((1+(tasaextlocal.bid/100))/(1+(tasaextranjera.offer/100)))-1
+    dev.eq.offer <- ((1+(tasaextlocal.offer/100))/(1+(tasaextranjera.bid/100)))-1
+    
+    #Identificación
+    
+    if (devmdo.bid > dev.eq.bid & devmdo.offer > dev.eq.offer){
+      estrategia <- "Short Forward"
+    } 
+    else if (devmdo.bid < dev.eq.bid & devmdo.offer < dev.eq.offer){
+      estrategia <- "Long Forward"
+    } 
+    else if (dev.eq.bid < devmdo.bid & devmdo.offer < dev.eq.offer){
+      estrategia <- "No arbitrable"
+    }
+    
+    # Compro FWD
+    if(estrategia == "Long Forward" & utilidad == 1 ){ #local
+      #Crédito extranjero
+      VP.cred <- valor/((1+(tasaextranjera.offer/100))^(plazo/base))
+      #Compro FWD 
+      FWD <- valor*strikeoffer
+      #Monetizo local
+      VP.local <- VP.cred*spot
+      #Inversión local
+      VF.inv <- VP.local*((1+(tasaextlocal.bid/100))^(plazo/base))
+      #Payoff
+      Payoff <- as.numeric(VF.inv - FWD)
+      return(list(Estrategia=estrategia,Payoff=Payoff))
+    } 
+    else if (estrategia == "Long Forward" & utilidad == 0){
+      #FWD
+      FWD <- valor*strikeoffer
+      #Hallo inversión en Local
+      VP.FWD <- FWD/((1+(tasaextlocal.bid/100))^(plazo/base))
+      #Monetizo a Extranjero
+      VP.Ext <- VP.FWD/spot
+      #Crédito Extranjero
+      VF.Cred <- VP.Ext*((1+(tasaextranjera.offer/100))^(plazo/base))
+      #Payoff
+      Payoff <- valor-VF.Cred  
+      return(list(Estrategia=estrategia,Payoff=Payoff))
+      
+    }
+    #Vendo FWD
+    else if (estrategia == "Short Forward" & utilidad == 0){
+      #Crédito Local
+      Cred.spot <- valor*strikebid
+      VP.cred <- Cred.spot/((1+(tasaextlocal.offer/100))^(plazo/base))
+      #Monetizo extranjero
+      VP.Ext <- VP.cred/spot
+      #Invierto en Ext
+      VP.Inv <- VP.Ext*((1+(tasaextranjera.bid/100))^(plazo/base))
+      #Payoff
+      Payoff <- VP.Inv - valor
+      return(list(Estrategia=estrategia,Payoff=Payoff))
+    }
+    else if(estrategia == "Short Forward" & utilidad == 1){
+      #Hallo inv en Extranjero
+      VP.Inv <- valor/((1+(tasaextranjera.bid/100))^(plazo/base))
+      #Inv en spot local
+      Inv.spot <- VP.Inv*spot
+      #Crédito en Local
+      VF.Cred <- Inv.spot*((1+(tasaextlocal.offer/100))^(plazo/base))
+      #FWD en local
+      FWD <- valor*strikebid
+      #Payoff
+      Payoff <-  VF.Cred - FWD
+      return(list(Estrategia=estrategia,Payoff=Payoff))
+    }
+    #Non arbitrable
+    else if(estrategia == "No arbitrable"){
+      return(print("Este ejercicio no es arbitrable."))
+    }
+    
+}
+
+carrytradesito <- carrytrade.f();carrytradesito
+  
+```
+
+Prorroga y anticipo
+```{r}
+proant.f <- function(spotbid=as.numeric(readline(prompt="Introduzca Spot BID: ")),
+                     spotoffer=as.numeric(readline(prompt="Introduzca Spot OFFER: ")),
+                     posicion=as.numeric(readline(prompt="Compra de FWD: 1. Venta de FWD: 0 -> ")),
+                     devmdo.bid.1=as.numeric(readline(prompt="Introduzca devaluación de mercado a plazo inicial BID: ")),
+                     devmdo.offer.1=as.numeric(readline(prompt="Introduzca devaluación de mercado a plazo inicial OFFER: ")),
+                     plazo1=as.numeric(readline(prompt="Introduzca plazo inicial : ")), 
+                     spotTbid=as.numeric(readline(prompt="Introduzca spot a plazo 1 BID: ")),
+                     spotToffer=as.numeric(readline(prompt="Introduzca spot a plazo 1 OFFER: ")),
+                     devmdo.bid2=as.numeric(readline(prompt="Introduzca devaluación de mercado a plazo de cambio BID: ")),
+                     devmdo.offer.2=as.numeric(readline(prompt="Introduzca devaluación de mercado a plazo de cambio OFFER: ")),
+                     plazo2=as.numeric(readline(prompt="Introduzca plazo de cambio: ")),
+                     base=as.numeric(readline(prompt="Introduzca base 360 0 365: ")),
+                     valor=as.numeric(readline(prompt="Introduzca valor del FWD: ")),
+                     movimiento=as.numeric(readline(prompt="Introduzca si desea hacer una prorroga: 1. Anticipo:0 -> "))){
+  #Prorroga - Compra
+  if(movimiento ==1 & posicion==1){
+    strike <- spotoffer*((1+(devmdo.offer.1/100))^(plazo1/base))
+    strike2 <- strike*((1+(devmdo.offer.2/100))^(plazo2/base))
+    return(list(Strike2=strike2))
+  }
+  #Prorroga - Venta
+  else if(movimiento==1 & posicion  == 0){
+    strike <- spot*((1+(devmdo.bid.1/100))^(plazo1/base))
+    strike2 <- strike*((1+(devmdo.bid.2/100))^(plazo2/base))
+    return(list(Strike2=strike2))
+  }
+  #Anticipo - Compra
+  
+  else if(movimiento==0 & posicion==1){
+    strike <- spotoffer*((1+(devmdo.offer.1/100))^(plazo1/base))
+    strike2 <- strike/((1+(devmdo.bid.2/100))^(plazo2/base))
+    Payoff <- (spotTbid-strike2)*valor
+    return(list(Payoff=Payoff,Strike2=strike2))
+  }
+    else if(movimiento==0 & posicion==1){
+    strike <- spotbid*((1+(devmdo.bid.1/100))^(plazo1/base))
+    strike2 <- strike/((1+(devmdo.offer.2/100))^(plazo2/base))
+    Payoff <- (strike2-spotTbid)*valor
+    return(list(Payoff=Payoff,Strike2=strike2))
+  }
+}
+
+proant <- proant.f();proant
+```
+
+
+
+
+
